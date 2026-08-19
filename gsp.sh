@@ -9,12 +9,26 @@
 # ~/.ssh/config, so it works during `git clone` (when there is no repo yet)
 # as well as on fetch/push inside a repository.
 
+# Piping into another shell (`curl ... | zsh`) skips the shebang, and the rest of
+# the script is bash. Say so plainly instead of failing on some later line.
+if [ -z "${BASH_VERSION:-}" ]; then
+	echo "gsp needs bash. Run it as:" >&2
+	echo "  curl -fsSL https://raw.githubusercontent.com/JohnHenrySpike/gsp/master/gsp.sh | bash" >&2
+	exit 1
+fi
+
 set -euo pipefail
 
 GSP_VERSION="1.1.0"
 
-SELF="${BASH_SOURCE[0]}"
-if command -v realpath >/dev/null 2>&1; then
+# Where to fetch the script from when it was piped in (curl ... | bash) and there
+# is no local file to copy. Override with GSP_SOURCE_URL.
+GSP_RAW_URL="https://raw.githubusercontent.com/JohnHenrySpike/gsp/master/gsp.sh"
+
+# `curl ... | bash` runs the script from stdin: BASH_SOURCE is unset there and $0
+# is just the shell name, so both need a guard before anything touches the path.
+SELF="${BASH_SOURCE[0]:-$0}"
+if [ -f "$SELF" ] && command -v realpath >/dev/null 2>&1; then
 	SELF="$(realpath "$SELF")"
 fi
 
@@ -1087,6 +1101,33 @@ cmd_doctor() {
 	fi
 }
 
+install_self() { # dest — copy the running script, or download it when piped in
+	local dest=$1 url tmp
+	if [ -f "$SELF" ] && [ -r "$SELF" ]; then
+		if dry; then note "[dry-run] cp $SELF $dest"; return 0; fi
+		cp "$SELF" "$dest"
+	else
+		# Piped in: nothing on disk to copy, so fetch the same script instead.
+		url=${GSP_SOURCE_URL:-$GSP_RAW_URL}
+		if dry; then note "[dry-run] download $url $S_ARROW $dest"; return 0; fi
+		tmp=$(mktemp "$dest.XXXXXX")
+		if command -v curl >/dev/null 2>&1; then
+			curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; die "cannot download $url"; }
+		elif command -v wget >/dev/null 2>&1; then
+			wget -qO "$tmp" "$url" || { rm -f "$tmp"; die "cannot download $url"; }
+		else
+			rm -f "$tmp"; die "neither curl nor wget found — cannot download $url"
+		fi
+		if ! head -n 1 "$tmp" | grep -q '^#!.*sh'; then
+			rm -f "$tmp"; die "what came back from $url is not a shell script"
+		fi
+		mv "$tmp" "$dest"
+		note "    downloaded from $url"
+	fi
+	chmod 755 "$dest"
+	ok "binary: $(short "$dest")"
+}
+
 cmd_install() {
 	local dest="$BIN_DIR/gsp" mode=auto arg shell_arg=''
 	local shells=()
@@ -1108,13 +1149,7 @@ cmd_install() {
 
 	title "Installing gsp $GSP_VERSION"
 	ensure_dir "$BIN_DIR" 755
-	if dry; then
-		note "[dry-run] cp $SELF $dest"
-	else
-		cp "$SELF" "$dest"
-		chmod 755 "$dest"
-		ok "binary: $(short "$dest")"
-	fi
+	install_self "$dest"
 
 	ensure_dir "$CONFIG_DIR" 700
 	cmd_completions zsh | atomic_write "$CONFIG_DIR/gsp.zsh" 644
@@ -1241,6 +1276,7 @@ ${b}Commands${z}
                                     prepare ~/.ssh and ~/.gitconfig, and ask
                                     about PATH per installed shell;
                                     --setup-path skips the questions
+                                    ${d}(this is what runs when you pass no command)${z}
   ${c}gsp add${z} [name] [--root D] [--name N] [--email E] [--host H]
                                     create a profile (folder + key + identity);
                                     default root is ${d}<current folder>/<name>${z}
@@ -1279,7 +1315,14 @@ main() {
 		esac
 	done
 	set -- "${args[@]:-}"
-	[ $# -gt 0 ] || set -- help
+	# No command at all means "install" — that is what `curl ... | bash` needs.
+	# Flags without a command mean install too, so `... | bash -s -- --setup-path`
+	# reads the way one expects.
+	case "${1:-}" in
+		'')             set -- install ;;
+		-h|--help|--version) ;;
+		-*)             set -- install "$@" ;;
+	esac
 
 	local cmd=$1
 	shift || true
@@ -1297,7 +1340,7 @@ main() {
 		completions) cmd_completions "$@" ;;
 		help|-h|--help) cmd_help ;;
 		version|--version) printf 'gsp %s\n' "$GSP_VERSION" ;;
-		'')          cmd_help ;;
+		'')          cmd_install ;;
 		*)           die "unknown command: $cmd (see gsp help)" ;;
 	esac
 }

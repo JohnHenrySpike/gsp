@@ -6,7 +6,42 @@ inside it automatically uses its own SSH key and its own `user.name` / `user.ema
 **Clone URLs stay untouched** — you keep typing plain
 `git clone git@github.com:acc/repo.git`, and ssh figures out the key on its own.
 
+## Installing and updating
+
+Run either of these — `curl` or `wget`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JohnHenrySpike/gsp/master/gsp.sh | bash
+```
+
+```bash
+wget -qO- https://raw.githubusercontent.com/JohnHenrySpike/gsp/master/gsp.sh | bash
+```
+
+The script installs itself into `~/.local/bin/gsp`, writes the completions, prepares
+`~/.config/gsp`, `~/.ssh` and `~/.gitconfig`, and asks about `PATH` for each shell it
+finds. The questions are read from `/dev/tty`, so they work even though `stdin` is the
+pipe. Running the same line again updates an existing install.
+
+To skip the questions and set up every shell found, pass the flag after `--`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JohnHenrySpike/gsp/master/gsp.sh | bash -s -- --setup-path
+```
+
+**Pipe into `bash`, not into `zsh` or `sh`.** A pipe skips the `#!/usr/bin/env bash`
+line, so the shell you name is the one that runs the script — and the script is bash.
+`... | zsh` used to die on `BASH_SOURCE[0]: parameter not set`; it now prints a short
+"gsp needs bash" message instead. Which shell you *type* in does not matter: zsh and
+fish users pipe into `bash` just the same.
+
 ## Quick start
+
+From a clone, with no command at all:
+
+```bash
+./gsp.sh             # same as ./gsp.sh install
+```
 
 ```bash
 ./gsp.sh install     # installs gsp into ~/.local/bin + completions (zsh/fish),
@@ -42,6 +77,10 @@ nothing and prints the instructions at the end of its output instead.
 
 The script always runs under bash (`#!/usr/bin/env bash`), so it behaves the same
 whether you call it from zsh, bash or fish.
+
+When it is piped in rather than run from a file there is nothing on disk to copy, so
+`install` downloads the script from GitHub instead. Set `GSP_SOURCE_URL` to install
+from somewhere else (a fork, a branch, a `file://` path).
 
 Then:
 
@@ -107,7 +146,7 @@ markers is left alone, and the file is backed up before the first change.
 | `gsp apply` | regenerate `~/.ssh/config` and `~/.gitconfig` |
 | `gsp remove <profile>` | delete a profile (your code folder is never touched) |
 | `gsp doctor` | diagnostics: modes, keys, and the **real** key choice via `ssh -G` |
-| `gsp install` | install into `~/.local/bin`, prepare `~/.ssh` and `~/.gitconfig`, add zsh/fish completions, ask about `PATH` per shell |
+| `gsp install` | install into `~/.local/bin`, prepare `~/.ssh` and `~/.gitconfig`, add zsh/fish completions, ask about `PATH` per shell — **the default when no command is given** |
 
 The global `--dry-run` flag prints what would be written and changes nothing.
 
